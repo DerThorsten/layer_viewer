@@ -42,12 +42,12 @@ class LayerCtrlWidget(QtGui.QWidget):
         self.setLayout(self.widget_layout)
         self.n_layers = 0
 
-    def remove_layer(self, layer):
+    def removeLayer(self, layer):
         _list_widget_item = layer._list_widget_item
         qIndex = self.list_widget.indexFromItem(_list_widget_item)
         self.list_widget.model().removeRow(qIndex.row())
 
-    def add_layer(self, layer):
+    def addLayer(self, layer):
 
         w = layer.ctrl_widget()
         w.toggleEye.setActive(True)

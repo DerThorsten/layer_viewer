@@ -1,5 +1,5 @@
 from .layer_base import LayerBase
-from ..widgets import TrippleToggleEye, ToggleEye, FractionSelectionBar
+from ..widgets import TripleToggleEye, ToggleEye, FractionSelectionBar
 from ..pixel_path import *
 from .layer_controller import *
 import pyqtgraph as pg
@@ -39,9 +39,9 @@ class BinaryObjectLayer(LayerBase):
     def __init__(self, name, data=None, color=None):
         super(BinaryObjectLayer, self).__init__(name=name)
 
-        if color is None:
-            s4 = (lut_size + with_background) * 4
-            color = numpy.random.randint(low=0, high=255, size=3)
+        # if color is None:
+        #     s4 = (lut_size + with_background) * 4
+        #     color = numpy.random.randint(low=0, high=255, size=3)
 
         lut = numpy.zeros([2, 4])
         lut[:, 0:3] = color
@@ -103,6 +103,8 @@ class BinaryObjectLayer(LayerBase):
 
     def updateData(self, image):
         self.m_image_item.updateImage(self._apply_lut(image))
+        self.m_data = image
 
     def setData(self, image):
         self.m_image_item.setImage(self._apply_lut(image), autoLevels=False)
+        self.m_data = image

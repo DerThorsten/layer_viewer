@@ -12,7 +12,7 @@ from .settings_widget import SettingsWidget
 class LayerViewerObject(object):
     def __init__(self, parent=None):
         #sQtCore.QObject.__init__(self, parent)
-   
+
         self.m_settings_widget = SettingsWidget()
         self.m_layer_view_widget = LayerViewWidget(settings_widget=self.settings_widget)
         self.m_layer_ctrl_widget = LayerCtrlWidget()
@@ -41,7 +41,7 @@ class LayerViewerObject(object):
     def addLayer(self, layer, opacity=1.0, visible=True):
 
         image_item = layer.get_image_item()
-        self.m_layer_ctrl_widget.add_layer(layer)
+        self.m_layer_ctrl_widget.addLayer(layer)
         self.view_box.addItem(image_item)
         self.m_layers[layer.name] = layer
         self.setLayerVisibility(layer.name, bool(visible))
@@ -56,7 +56,7 @@ class LayerViewerObject(object):
     def removeLayer(self, layer_name):
         layer = self.m_layers[layer_name]
         self.view_box.removeItem(layer.get_image_item())
-        self.m_layer_ctrl_widget.remove_layer(layer)
+        self.m_layer_ctrl_widget.removeLayer(layer)
         del self.m_layers[layer_name]
 
     def hasLayer(self, layer_name):
@@ -96,16 +96,17 @@ class LayerViewerObject(object):
 
 
 class LayerViewerWidget(QtGui.QWidget, LayerViewerObject):
-    def __init__(self, gui_stlye="splitter", parent=None):
+    def __init__(self, gui_style="splitter", parent=None):
         QtGui.QWidget.__init__(self, parent)
 
         self.m_hbox = QtGui.QHBoxLayout()
         self.setLayout(self.m_hbox)
+        self.gui_style = gui_style
 
         self.layer_viewer_object = LayerViewerObject()
 
 
-        if gui_stlye == "dock":
+        if gui_style == "dock":
 
             self.area = DockArea()
             self.m_hbox.addWidget(self.area)
@@ -116,7 +117,7 @@ class LayerViewerWidget(QtGui.QWidget, LayerViewerObject):
             self.area.addDock(d_view)
             self.area.addDock(d_ctrl, "right", d_view)
 
-        elif gui_stlye == "splitter":
+        elif gui_style == "splitter":
             self.splitter = QtGui.QSplitter()
             self.m_hbox.addWidget(self.splitter)
             self.splitter.addWidget(self.m_layer_view_widget)

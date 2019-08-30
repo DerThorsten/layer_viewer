@@ -1,4 +1,4 @@
-from ..widgets import TrippleToggleEye, ToggleEye, FractionSelectionBar, GradientWidget
+from ..widgets import TripleToggleEye, ToggleEye, FractionSelectionBar, GradientWidget
 import pyqtgraph as pg
 import os
 from pyqtgraph.Qt import QtCore, QtGui
@@ -53,7 +53,7 @@ class LayerItemWidget(QWidget):
         self.opacityLabel.setFont(self._font)
         self.opacityLabel.setText(u"\u03B1=%0.1f%%" % (100.0 * (self.bar.fraction())))
 
-        self.toggleEye = TrippleToggleEye(parent=self)
+        self.toggleEye = TripleToggleEye(parent=self)
         self.toggleEye.setActive(True)
         self.toggleEye.setFixedWidth(35)
         self.toggleEye.setToolTip("Visibility")

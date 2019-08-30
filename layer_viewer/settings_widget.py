@@ -94,6 +94,7 @@ class SettingsWidget(ParameterTree):
 
         self.setParameters(self.p, showTop=False)
         self.setWindowTitle("Layer Viewer Settings")
+        # TODO: the parameters are not saved beyond the exit of the program, do that
 
     def __getitem__(self, key):
         return self.p[key]

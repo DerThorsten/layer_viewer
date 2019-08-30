@@ -39,7 +39,8 @@ class PixelPath(object):
     def add(self, pos):
         _pix_path = self._pix_path
 
-        if len(_pix_path) > 1:
+        # it was > 1, but I think it should be > 0
+        if len(_pix_path) > 0:
             self._pix_path.extend(bresenham_line(self._pix_path[-1], pos))
             self.qpath.lineTo(float(pos[0]), float(pos[1]))
         else:

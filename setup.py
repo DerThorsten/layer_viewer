@@ -11,8 +11,8 @@ with open('README.rst') as readme_file:
 
 requirements = [
     'click>=6.0',
-    'pyqtgraph',
-    'PyQt5',
+    'PyQt5>=5.13.0',
+    'pyqtgraph>=0.10.0',
     'numpy'
 ]
 
@@ -29,7 +29,8 @@ test_requirements = [
     'pytest-xvfb',
     'coverage',
     'flake8'
-]
+] + requirements
+
 
 
 

@@ -41,11 +41,11 @@ class ToggleEye(QtGui.QLabel):
         self.activeChanged.emit(self._active)
 
 
-class TrippleToggleEye(QtGui.QLabel):
+class TripleToggleEye(QtGui.QLabel):
     stateChanged = QtCore.pyqtSignal(int)
 
     def __init__(self, parent=None):
-        super(TrippleToggleEye, self).__init__(parent=parent)
+        super(TripleToggleEye, self).__init__(parent=parent)
 
         self._state = 1
         path = os.path.dirname(os.path.abspath(__file__))

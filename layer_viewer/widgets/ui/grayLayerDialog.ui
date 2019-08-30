@@ -35,7 +35,7 @@
        <property name="orientation">
         <enum>Qt::Horizontal</enum>
        </property>
-       <property name="sizeHint" stdset="0">
+       <property name="size_hint" stdset="0">
         <size>
          <width>40</width>
          <height>20</height>
@@ -118,7 +118,7 @@ p, li { white-space: pre-wrap; }
      <property name="orientation">
       <enum>Qt::Vertical</enum>
      </property>
-     <property name="sizeHint" stdset="0">
+     <property name="size_hint" stdset="0">
       <size>
        <width>20</width>
        <height>2</height>

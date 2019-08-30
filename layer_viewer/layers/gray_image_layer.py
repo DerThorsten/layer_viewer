@@ -1,5 +1,5 @@
 from .layer_base import LayerBase
-from ..widgets import TrippleToggleEye, ToggleEye, FractionSelectionBar
+from ..widgets import TripleToggleEye, ToggleEye, FractionSelectionBar
 from ..pixel_path import *
 from .layer_controller import *
 import pyqtgraph as pg
@@ -93,6 +93,7 @@ class GrayImageLayer(LayerBase):
         return self.m_image_item
 
     def updateData(self, image):
+        self.m_data = image
         self.m_image_item.updateImage(image)
 
     def setData(self, image):
@@ -102,3 +103,4 @@ class GrayImageLayer(LayerBase):
             levels=self.m_levels,
             autoHistogramRange=self.m_autoHistogramRange,
         )
+        self.m_data = image

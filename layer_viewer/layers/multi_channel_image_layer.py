@@ -1,5 +1,5 @@
 from .layer_base import LayerBase
-from ..widgets import TrippleToggleEye, ToggleEye, FractionSelectionBar
+from ..widgets import TripleToggleEye, ToggleEye, FractionSelectionBar
 from ..pixel_path import *
 from .layer_controller import *
 import pyqtgraph as pg
@@ -151,6 +151,7 @@ class MultiChannelImageLayer(LayerBase):
         self.m_data = image
         self.m_ctrl_widget.channelSelector.setRange(0, self.m_data.shape[2] - 1)
         self.m_image_item.updateImage(image[..., self.current_channel])
+        self.update_rgb_enabled()
 
     def setData(self, image):
         self.m_data = image
@@ -176,3 +177,10 @@ class MultiChannelImageLayer(LayerBase):
                     levels=self.m_levels,
                     autoHistogramRange=self.m_autoHistogramRange,
                 )
+        self.update_rgb_enabled()
+
+    def update_rgb_enabled(self):
+        if len(self.m_data.shape) == 3 and self.m_data.shape[2] > 4:
+            self.m_ctrl_widget.asRgb.setEnabled(False)
+        else:
+            self.m_ctrl_widget.asRgb.setEnabled(True)
