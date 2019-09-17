@@ -47,6 +47,8 @@ class ObjectLayer(LayerBase):
             if with_background:
                 lut[0, 3] = 0
             self.lut = lut.astype("int64")
+        else:
+            self.lut = lut
 
         self.m_data = data
 
