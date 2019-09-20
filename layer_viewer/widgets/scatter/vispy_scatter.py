@@ -22,11 +22,73 @@ from ...widgets import  ToggleEye, FractionSelectionBar, GradientWidget
 import vispy.scene as scene
 
 
-
-
 from .histogram import custom_hist
 from .patch_gradients import patch_gradients
 from .lasso import Lasso
+
+from sklearn.preprocessing import MinMaxScaler
+
+
+patch_gradients()
+
+
+
+
+
+
+
+
+class VisPyScatter(QWidget):
+    def __init__(self):
+
+        self.data_list = None
+        self.levels = None
+
+    def _init_ui(self):
+        pass
+
+
+
+    def set_data(self, data_list, levels=None):
+
+        # find levels aka min max
+        if levels is None:
+            scaler = MinMaxScaler()
+            for data in data_list:
+                scaler.partial_fit(data['values'])
+            levels = scaler.data_min_, scaler.data_max_
+        self.levels = levels
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+class ScatterDataset(object):
+    def __init__(self, name, pos, value):
+        self.name = name
+        self.pos = pos
+        self.value = value
+
+
 
 
 class VisPyScatterPlot(QWidget):
@@ -54,15 +116,6 @@ class VisPyScatterPlot(QWidget):
         plt = fig[0:self.k, 0:self.k]
         plt.set_gl_state(depth_test=False)
 
-
-
-        self.histcolor = (0.3, 0.5, 0.8)
-        self.n_bins = 100
-
-        self.histx = None
-        self.histy = None
-
-
         plt._configure_2d()
         selected = None
 
@@ -74,12 +127,11 @@ class VisPyScatterPlot(QWidget):
         self.color = None
         self.scatter =  None
         self.scatter_sub = None
-
-
         self.data_bg = None
         self.color_bg = None
         self.scatter_bg = None
 
+        # the lasso
         ldata =None
         self.lasso = Lasso()
         self.lasso_line = vp.Line(pos=None,parent=plt.view.scene, width=50, method='agg',color=(1,0,0))#, marker_size=0.0)
@@ -94,6 +146,7 @@ class VisPyScatterPlot(QWidget):
         self.fig.events.mouse_move.connect(self.on_mouse_move)
 
         self.cm = None
+        self.histxy = None
 
     def get_cm(self):
         return self.root.get_cm()
@@ -136,15 +189,27 @@ class VisPyScatterPlot(QWidget):
         cm = self.get_cm()
         value_range = self.root.levels
         if not self.with_background_scatter:
-           
+            
+            print("WUBAAA")
             minvals = numpy.min(data, axis=0)
             maxvals = numpy.max(data, axis=0)
 
-            for d in range(2):
-                plot = [ploty,plotx][d==0]
-                orientation = ['v','h'][d==0]
-                r = (minvals[d], maxvals[d])
-                custom_hist(plot, data=data[:,d],     range=r, color=(1,0,0), orientation=orientation, cm=cm, values=self.values, value_range=value_range)
+            if self.histxy is None:
+                print("is nione")
+                self.histxy = []
+                for d in range(2):
+                    plot = [ploty,plotx][d==0]
+                    orientation = ['v','h'][d==0]
+                    r = (minvals[d], maxvals[d])
+                    h = custom_hist(plot, data=data[:,d],     range=r, color=(1,0,0), orientation=orientation, cm=cm, values=self.values, value_range=value_range)
+                    self.histxy.append(h)
+            else:
+                print("reuse")
+                for d in range(2):
+                    plot = [ploty,plotx][d==0]
+                    orientation = ['v','h'][d==0]
+                    r = (minvals[d], maxvals[d])
+                    self.histxy[d].set_data(data=data[:,d],     range=r, color=(1,0,0), orientation=orientation, cm=cm, values=self.values, value_range=value_range)
         else:
 
             all_data = numpy.concatenate([data,data_bg], axis=0)
@@ -162,6 +227,10 @@ class VisPyScatterPlot(QWidget):
                 custom_hist(plot, data=data_bg[:,d],  range=r, color=(0,1,0), orientation=orientation, cm=cm, values=self.values_bg, value_range=value_range)
                 custom_hist(plot, data=all_data[:,d], range=r, color=(0,0,1), orientation=orientation, cm=cm, values=all_values, value_range=value_range)
             
+    
+    def on_levels_changed(self, levels):
+        pass
+
     def map_to_dataspace(self, pos):
         tr = self.fig.scene.node_transform(self.scatter)
         return tr.map(pos)[0:2]
@@ -301,7 +370,6 @@ class VisPyScatter(QWidget):
         self.levels = levels
 
         if self.values is not None:
-            print("Acc")
             # color the data    
             self.normalized_values = self.normalize_values(self.values)
             color = self.apply_cm(self.normalized_values)

@@ -1,7 +1,7 @@
 
 from layer_viewer.widgets.scatter.vispy_scatter import *
 
-
+from sklearn import cluster, datasets
 
 
 import numpy
@@ -26,29 +26,42 @@ def gen_toy_data(n = 100000):
 
 
 
-from vispy.color import Colormap
-
-#  per image scatter
-cm = Colormap(['r', 'b'])
-data =gen_toy_data(1000000)
-values = numpy.random.normal(size=data.shape[0]) + data[:,0]*data[:,1] - data[:,0]
 
 
+n_samples = 100000
+pos, _ = datasets.make_blobs(n_samples=n_samples, random_state=8)
+values = numpy.random.normal(size=pos.shape[0]) + pos[:,0] + pos[:,1]
+
+n_samples = 1000000
+pos2, _ = datasets.make_blobs(n_samples=n_samples, random_state=8)
+pos2 += 2.0
+values2 = numpy.random.normal(size=pos2.shape[0]) + pos2[:,0] + pos2[:,1]
 
 
-widget = VisPyScatter(with_background_scatter=False)
-widget.set_levels(values.min(), values.max())
-widget.set_data(data, values)#, data2, values2)
-widget.show()
+# data_list = [
+#     "main" : {
+#         "pos" : pos,
+#         "values" : values,
+#         "name": "main",
+#     },
+#     "background" : {
+#         "pos" : pos2,
+#         "values" : values2,
+#         "name": "background",
+#     }
+# ]
+
+
+# widget = VisPyScatter()
+# widget.set_data(data_list=data_list)#, data2, values2)
+# widget.show()
+
+
+if True:
 
 
 
-# global scatter
-data2 = gen_toy_data(n=100000)
-values2 = numpy.random.normal(size=data2.shape[0]) + data2[:,0]
-
-
-widget = VisPyScatter(with_background_scatter=True)
-widget.set_levels(values.min(), values.max())
-widget.set_data(data, values, data2, values2)
-widget.show()
+    widget = VisPyScatter(with_background_scatter=True)
+    widget.set_levels(values.min(), values.max())
+    widget.set_data(pos, values, pos2, values2)
+    widget.show()
