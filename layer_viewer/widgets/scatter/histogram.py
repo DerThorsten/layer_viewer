@@ -1,4 +1,4 @@
-import sys
+import sys 
 from vispy import scene, app
 import numpy as np
 import vispy
@@ -6,6 +6,9 @@ from vispy.scene import visuals
 import vispy.scene as scene
 from colored_hist import colored_hist 
 import numpy
+import scipy.ndimage 
+
+
 class CustomHistogramVisual(vispy.visuals.MeshVisual):
     """Visual that calculates and displays a histogram of data
 
@@ -20,18 +23,19 @@ class CustomHistogramVisual(vispy.visuals.MeshVisual):
     orientation : {'h', 'v'}
         Orientation of the histogram.
     """
-    def __init__(self, data, cm, values, range, value_range, bins=100, color='w', orientation='h'):
+    def __init__(self, data, cm, values, range, value_range, sigma=1.0, bins=100, orientation='h'):
         #   4-5
         #   | |
         # 1-2/7-8
         # |/| | |
         # 0-3-6-9
+        self.sigma = sigma
         rr,tris,val_colors=self._compute_hist(data=data, cm=cm, values=values, range=range, value_range=value_range,
-            bins=bins, color=color, orientation=orientation)
+            bins=bins, orientation=orientation)
       
         vispy.visuals.MeshVisual.__init__(self, rr, tris,face_colors=val_colors)
 
-    def _compute_hist(self, data, cm, values, range, value_range, bins=100, color='w', orientation='h'):
+    def _compute_hist(self, data, cm, values, range, value_range, bins=100, orientation='h'):
         data_in = np.asarray(data)
         if data_in.ndim != 1:
             raise ValueError('Only 1D data currently supported')
@@ -41,7 +45,11 @@ class CustomHistogramVisual(vispy.visuals.MeshVisual):
         # do the histogramming
         values = numpy.clip(values, *value_range)
         data, bin_edges, cvalues = colored_hist(data=data_in, values=values, range=list(range), n_bins=bins, normalize=True)
+        data = scipy.ndimage.gaussian_filter(data, sigma=self.sigma)
         
+        self.max_bin_count = numpy.max(data)
+
+        #cvalues = scipy.ndimage.gaussian_filter(cvalues, sigma=self.sigma)
         #print(data.min(), data.max())
 
         #cvalues = numpy.nan_to_num(cvalues)
@@ -81,9 +89,9 @@ class CustomHistogramVisual(vispy.visuals.MeshVisual):
 
 
 
-    def set_data(self, data, cm, values, range, value_range, bins=100, color='w', orientation='h'):
+    def set_data(self, data, cm, values, range, value_range, bins=100, orientation='h'):
         rr,tris,val_colors=self._compute_hist(data=data, cm=cm, values=values, range=range, value_range=value_range,
-            bins=bins, color=color, orientation=orientation)
+            bins=bins, orientation=orientation)
         super().set_data(vertices=rr, faces=tris, face_colors=val_colors)
 
 
@@ -96,11 +104,12 @@ class CustomHistogramVisual(vispy.visuals.MeshVisual):
 CustomHistogram = scene.visuals.create_visual_node(CustomHistogramVisual)
 
 
-def custom_hist(self, data, cm, values,  range, value_range, bins=100, color='w', orientation='h'):
+def custom_hist(self, data, cm, values,  range, value_range, sigma=1.0, bins=100, orientation='h'):
     self._configure_2d()
     hist = CustomHistogram(data=data, bins=bins, 
         cm=cm, values=values,
-        color=color, orientation=orientation, range=range,
+        orientation=orientation, range=range,
+        sigma=sigma,
         value_range=value_range)
     self.view.add(hist)
     self.view.camera.set_range()
