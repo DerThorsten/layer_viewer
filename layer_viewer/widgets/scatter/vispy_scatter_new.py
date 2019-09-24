@@ -65,14 +65,6 @@ def blockSignals(*args, **kwds):
     for k,v in kwds.items():
         v.blockSignals(False)
 
-
-
-
-
-
-
-
-
 class ScatterDataset(object):
     def __init__(self, name, pos, color,values, z_index, root):
         self.name = name
@@ -94,7 +86,7 @@ class ScatterDataset(object):
         self.histv = None
         self.values_clipped_at = None
         self.alpha = Alpha(1.0) 
-        self.color_filter = ColorFilter((0.5, 0.5, 0.5, 1.0))
+        self.color_filter = ColorFilter((1,1,1, 1))
         self.is_visible = True
 
     def build_plots(self):
@@ -205,9 +197,6 @@ class ScatterDataset(object):
         self.pos = None 
         self.values = None
 
-
-
-
 class ScatterDatasetList(list):
     def __init__(self, root):
         super().__init__()
@@ -267,7 +256,6 @@ class ScatterDatasetList(list):
         for data in self:
             data.on_levels_changed()
 
-
 class ColorHist(PlotDataItem):
     def __init__(self, values, bins, color, root, sigma):
         super().__init__()
@@ -282,8 +270,7 @@ class ColorHist(PlotDataItem):
         self.setPen([255.0 * c for c in color])
         self.setFillBrush((100,100,100, 255.0/2.0))
 
-
-class CtrlWidget(QWidget):
+class DatasetCtrlWidget(QWidget):
     def __init__(self, root):
         super().__init__()
         self.setLayout(QtGui.QGridLayout())
@@ -310,11 +297,73 @@ class CtrlWidget(QWidget):
             g.addWidget(eye,i,1)
             g.addWidget(bar,i,2,1,20)
 
-                
+class CtrlWidget(QWidget):
+    def __init__(self, root):
+        super().__init__()
+        self.root = root
+    
+        self.combo_box = QtGui.QComboBox()
+        self._selection_types = ["ball","lasso", "ball"]
+        self.selection_type = self._selection_types[0]
+        self.combo_box.addItems(self._selection_types)
+        self.spinner_rad = QSpinBox()
+        self.spinner_knn = QSpinBox()
+
+        self._init_ui()
+        self._connect_signals()
+
+    def _init_ui(self):
+
+        self.spinner_rad.setMinimum(0)
+        self.spinner_knn.setMinimum(0)
+
+        self.spinner_rad.setValue(5)
+        self.spinner_knn.setValue(100)
+
+        self.spinner_knn.setEnabled(False)
+        self.spinner_rad.setEnabled(True)
+        
+
+        self.setLayout(QtGui.QGridLayout())
+        l = self.layout()
+        l.addWidget(QtGui.QLabel("SelectionType"), 0, 1)
+        l.addWidget(self.combo_box, 0, 2)
+        l.addWidget(QtGui.QLabel("ball radius"), 0, 3)
+        l.addWidget(self.spinner_rad, 0, 4)
+        l.addWidget(QtGui.QLabel("k"), 0, 5)
+        l.addWidget(self.spinner_knn, 0, 6)
+
+    def _connect_signals(self):
+        def f(i):
+            m = self._selection_types[i]
+            if m == "lasso":
+                self.spinner_knn.setEnabled(False)
+                self.spinner_rad.setEnabled(False)
+                self.root.sel_ellips.visible = False
+
+            elif m == "ball":
+                self.spinner_knn.setEnabled(False)
+                self.spinner_rad.setEnabled(True)
+                self.root.sel_ellips.visible = True
+
+            elif m == "knn":
+                self.spinner_knn.setEnabled(True)
+                self.spinner_rad.setEnabled(False)
+                self.root.sel_ellips.visible = False
 
 
+        self.combo_box.currentIndexChanged.connect(f)
+
+        def f(r):
+            self.root.sel_ellips.radius = (r,r)
+        # todo remove me
+        #self.root._init_crosshair()
+        self.spinner_rad.valueChanged.connect(f)
 
 class VisPyScatter(QWidget):
+
+    selectionChanged = QtCore.pyqtSignal()
+
     def __init__(self, **kwargs):
         super().__init__()
 
@@ -340,12 +389,14 @@ class VisPyScatter(QWidget):
         self._init_vispy_fig()
 
         self.sel_ellips = None
+        self.sel_ellips_alpha = Alpha(0.2)
 
         # qt widgets
         self.histlut = HistogramLUTWidget(fillHistogram=True)
         self.histlut.item.gradient.restoreState(
             pg.graphicsItems.GradientEditorItem.Gradients['thermal'])
-        self.ctrl_widget = None
+        self.data_ctrl_widget = None
+        self.ctrl_widget = CtrlWidget(root=self)
 
         # plots for side value hists
         self.plots = []
@@ -362,6 +413,11 @@ class VisPyScatter(QWidget):
         # selection
         self.selection = None
 
+    @property
+    def selection_type(self):
+        return self.ctrl_widget.selection_type
+    
+
     def interactive_ds(self):
         return  self.data_list[0]
 
@@ -369,33 +425,27 @@ class VisPyScatter(QWidget):
         return self.data_list[-1]
 
     def on_selection_changed(self, selection):
-            
+        self.selectionChanged.emit()
         if selection is None or len(selection) == 0:
             logger.debug("on_deselect")
             self.on_deselect()
         else:
             logger.debug("on_new_select")
             self.on_new_select(selection)
+        self.selection = selection
 
-           
+
+
 
     def on_new_select(self, selection):
         ds_sel = self.data_list[-1]
         ds = self.interactive_ds() 
-        if selection is not None and len(selection) > 0 :
-
-            sel_pos = ds.pos[selection, :]
-            sel_values = ds.values[selection]
-
-            
-            ds_sel.setData(pos=sel_pos, values=sel_values)
-            ds_sel.build_plots()
-            ds_sel.setVisible(True)
-            self.synch_axis(with_sel=True)
-        else:
-            ds_sel.unsetData()
-            ds_sel.setVisible(False)
-            self.synch_axis()
+        sel_pos = ds.pos[selection, :]
+        sel_values = ds.values[selection]
+        ds_sel.setData(pos=sel_pos, values=sel_values)
+        ds_sel.build_plots()
+        ds_sel.setVisible(True)
+        self.synch_axis(with_sel=True)
 
         for ds in self.data_list[:-1]:
             ds.color_filter.filter = (0.5,0.5,0.5,0.5)
@@ -405,8 +455,9 @@ class VisPyScatter(QWidget):
         for ds in self.data_list[:-1]:
             ds.color_filter.filter = (1,1,1,1)
 
+        self.sel_ds().unsetData()
         self.sel_ds().setVisible(False)
-
+        self.synch_axis()
 
 
     def _init_ui(self):
@@ -427,9 +478,10 @@ class VisPyScatter(QWidget):
         # make sure the scatter widget takes most of the space when window is maximized
         self.vispy_fig.native.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Preferred)
         self.histlut.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.ctrl_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
 
-        
-
+            
+        self.layout().addWidget(self.ctrl_widget,1,0,1,2)
 
     def _init_vispy_fig(self):
 
@@ -456,7 +508,8 @@ class VisPyScatter(QWidget):
                 parent=self.plot_scatter.view.scene)
 
         self.sel_ellips.order = -1
-
+        self.sel_ellips.visible = True
+        self.sel_ellips.attach(self.sel_ellips_alpha)
 
     def _connect_signals(self):
 
@@ -474,7 +527,13 @@ class VisPyScatter(QWidget):
 
         # to handle cross-hair
         self.vispy_fig.events.mouse_move.connect(self.on_mouse_move)
-      
+        self.vispy_fig.events.mouse_press.connect(self.on_mouse_press)
+        self.vispy_fig.events.mouse_release.connect(self.on_mouse_release)
+
+
+        self.vispy_fig.events.key_release.connect(self.on_key_release)
+        self.vispy_fig.events.key_press.connect(self.on_key_press)
+
         # to link scatter axis with histograms
         self.plot_scatter.view.scene.transform.changed.connect(self.on_transform_changed)
         self.vispy_fig.events.resize.connect(self.on_transform_changed)
@@ -524,22 +583,74 @@ class VisPyScatter(QWidget):
         tr = self.vispy_fig.scene.node_transform(s)
         return tr.map(pos)[0:2]
 
+    def on_key_press(self, event):
+        logger.debug("key press")
+        modifiers = QtGui.QApplication.keyboardModifiers()
+        if self.selection_type == "ball":
+            if modifiers == QtCore.Qt.ShiftModifier:
+                self.sel_ellips_alpha.alpha = 1.0
+                self.sel_ellips.update()
+
+    def on_key_release(self, event):
+        logger.debug("key release")
+        modifiers = QtGui.QApplication.keyboardModifiers()
+        if self.selection_type == "ball":
+            if modifiers == QtCore.Qt.ShiftModifier:
+                self.sel_ellips_alpha.alpha = 0.2
+                self.sel_ellips.update()
+
+    def on_mouse_press(self, event):
+        if self.selection_type == "ball":
+            pos =  self.map_coords(event.pos)
+            self.select_from_ball(pos=pos)
+            self.sel_ellips_alpha.alpha = 1.0
+
+    def on_mouse_release(self, event):
+        logger.debug("release ,oise")
+        if self.selection_type == "ball":
+            self.sel_ellips_alpha.alpha = 0.2
+            self.sel_ellips.update()
+        else:
+            self.sel_ellips.visible = False
 
     def on_mouse_move(self, event):
         
-        pos =  self.map_coords(event.pos)
+        modifiers = QtGui.QApplication.keyboardModifiers()
+       
+        if self.selection_type == "ball":
+            pos =  self.map_coords(event.pos)
+            self.sel_ellips.center = pos
+            if modifiers == QtCore.Qt.ShiftModifier:
+                self.sel_ellips_alpha.alpha = 1.0
+                self.select_from_ball(pos=pos)
+            else:
+                self.sel_ellips_alpha.alpha = 0.2
+   
+    def select_from_ball(self, pos):
+        self.sel_ellips_alpha.alpha = 1.0
         self.sel_ellips.center = pos
         radius = self.sel_ellips.radius
-        assert math.isclose(radius[0], radius[1])
+        if not isinstance(radius, (int,float)):
+            assert math.isclose(radius[0], radius[1])
+            radius = radius[0]
 
         ds = self.data_list[0]
         kd = ds.kdtree
-        logger.debug("radius %s", self.sel_ellips.radius)
+        logger.debug("radius %s", radius)
         logger.debug("pos %s", pos)
-        indices = kd.query_ball(pos=pos, r=self.sel_ellips.radius[0])
+        selection = kd.query_ball(pos=pos, r=self.sel_ellips.radius[0])
+        
+        # check if selection is nonempty
+        if selection is not None and  len(selection) > 0:
+            self.on_selection_changed(selection=selection)
+        else:
+            # the new selection is empty
+            # check if we had an old selection
+            if self.selection is not None:
+                self.on_selection_changed(selection=None)
 
-        self.on_selection_changed(selection=indices)
-
+    def delect_selection(self):
+        self.on_selection_changed(None)
       
         
     # start vispy app via run
@@ -559,9 +670,7 @@ class VisPyScatter(QWidget):
     def set_data(self, data_list, levels=None):
 
         with blockSignals(self, self.histlut.item):
-            pass
-
-        if True:
+        
             # clear data
             self.data_list.clear()
             
@@ -614,16 +723,16 @@ class VisPyScatter(QWidget):
 
 
 
-            if self.ctrl_widget is not None:
-                self.layout().removeWidget(self.ctrl_widget)
+            if self.data_ctrl_widget is not None:
+                self.layout().removeWidget(self.data_ctrl_widget)
 
-            self.ctrl_widget = CtrlWidget(self)
+            self.data_ctrl_widget = DatasetCtrlWidget(self)
 
             #self.vispy_fig.native.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Preferred)
-            self.ctrl_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+            self.data_ctrl_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
 
 
-            self.layout().addWidget(self.ctrl_widget,1,0,1,2)
+            self.layout().addWidget(self.data_ctrl_widget,2,0,1,2)
             #self.layout().removeWidget(w)
 
             logger.debug("set data end ")

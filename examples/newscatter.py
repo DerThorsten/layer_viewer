@@ -13,7 +13,7 @@ app = pg.mkQApp()
 import logging
 logging.basicConfig(level=logging.DEBUG)
 
-n_samples = 1000
+n_samples = 100000
 pos, _ = datasets.make_blobs(n_samples=n_samples, random_state=8)
 values = numpy.random.normal(size=pos.shape[0]) + pos[:,0] + pos[:,1]
 
@@ -27,7 +27,7 @@ data_list = [
    {
         "pos" : pos,
         "values" : values,
-        "name": "main",
+        "name": "main0",
         "color": (1,0,0)
     },
     # {
