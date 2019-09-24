@@ -13,7 +13,11 @@ app = pg.mkQApp()
 import logging
 logging.basicConfig(level=logging.DEBUG)
 
-n_samples = 100000
+n_samples = 1000000
+
+
+
+
 pos, _ = datasets.make_blobs(n_samples=n_samples, random_state=8)
 values = numpy.random.normal(size=pos.shape[0]) + pos[:,0] + pos[:,1]
 
