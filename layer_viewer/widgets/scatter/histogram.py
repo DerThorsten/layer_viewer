@@ -30,12 +30,12 @@ class CustomHistogramVisual(vispy.visuals.MeshVisual):
         # |/| | |
         # 0-3-6-9
         self.sigma = sigma
-        rr,tris,val_colors=self._compute_hist(data=data, cm=cm, values=values, range=range, value_range=value_range,
+        rr,tris,val_colors=self._compute_hist(data=data, cm=cm, sigma=sigma, values=values, range=range, value_range=value_range,
             bins=bins, orientation=orientation)
       
         vispy.visuals.MeshVisual.__init__(self, rr, tris,face_colors=val_colors)
 
-    def _compute_hist(self, data, cm, values, range, value_range, bins=100, orientation='h'):
+    def _compute_hist(self, data, cm, values, range, value_range, sigma, bins=100, orientation='h'):
         data_in = np.asarray(data)
         if data_in.ndim != 1:
             raise ValueError('Only 1D data currently supported')
@@ -89,8 +89,8 @@ class CustomHistogramVisual(vispy.visuals.MeshVisual):
 
 
 
-    def set_data(self, data, cm, values, range, value_range, bins=100, orientation='h'):
-        rr,tris,val_colors=self._compute_hist(data=data, cm=cm, values=values, range=range, value_range=value_range,
+    def set_data(self, data, cm, values, range, value_range, sigma,bins=100, orientation='h'):
+        rr,tris,val_colors=self._compute_hist(data=data, cm=cm, values=values, sigma=sigma,range=range, value_range=value_range,
             bins=bins, orientation=orientation)
         super().set_data(vertices=rr, faces=tris, face_colors=val_colors)
 

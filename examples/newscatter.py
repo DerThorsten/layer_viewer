@@ -1,5 +1,5 @@
 
-from layer_viewer.widgets.scatter.vispy_scatter_new import *
+from layer_viewer.widgets.scatter.vispy_scatter import *
 
 from sklearn import cluster, datasets
 
@@ -42,7 +42,7 @@ data_list = [
     # }
 ]
 
-widget = VisPyScatter(n_bins_histxy=100,sigma_histxy=1.0)
+widget = VisPyScatter(n_bins_histxy=100,sigma_histxy=1.0, show_edges=False)
 widget.set_data(data_list=data_list)
 widget.show()
 

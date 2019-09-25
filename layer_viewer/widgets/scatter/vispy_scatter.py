@@ -2,12 +2,14 @@ import numpy as np
 import vispy.plot as vp
 from vispy.color import get_colormap
 import numpy
-
+import math
 from PyQt5.QtWidgets import *
 import vispy.app
 import vispy
 import sys
 from vispy import scene, app
+from vispy.color import ColorArray
+from vispy.visuals.filters import Clipper, Alpha, ColorFilter
 
 import numpy as np
 import vispy.plot as vp
@@ -22,12 +24,28 @@ from ...widgets import  ToggleEye, FractionSelectionBar, GradientWidget
 import vispy.scene as scene
 
 
-from .histogram import custom_hist
+
 from .patch_gradients import patch_gradients
+from .side_color_hist import SideColorHist
 from .lasso import Lasso
+from . spatial import *
+from . misc import block_signals, clip_norm
+from . marker_proxy import MarkerProxy
+from . hist_proxy import HistProxy
 
 from sklearn.preprocessing import MinMaxScaler
 
+import functools
+import logging
+
+
+
+
+import scipy.ndimage
+
+
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
 
 patch_gradients()
 
@@ -35,404 +53,643 @@ patch_gradients()
 
 
 
-
-
-
-class VisPyScatter(QWidget):
-    def __init__(self):
-
-        self.data_list = None
-        self.levels = None
-
-    def _init_ui(self):
-        pass
-
-
-
-    def set_data(self, data_list, levels=None):
-
-        # find levels aka min max
-        if levels is None:
-            scaler = MinMaxScaler()
-            for data in data_list:
-                scaler.partial_fit(data['values'])
-            levels = scaler.data_min_, scaler.data_max_
-        self.levels = levels
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 class ScatterDataset(object):
-    def __init__(self, name, pos, value):
+    def __init__(self, name, pos, color,values, z_index, root):
         self.name = name
         self.pos = pos
-        self.value = value
-
-
-
-
-class VisPyScatterPlot(QWidget):
-
-    selectionChanged = QtCore.pyqtSignal(numpy.ndarray)
-
-
-    def __init__(self, with_background_scatter=False):
-        super().__init__()
-
-        self.with_background_scatter = with_background_scatter
-        self.selection =  None
-
-        # create figure with plot
-        fig = vp.Fig(show=False)#, bgcolor=(0,0,0)  )
-
-
-        self.setLayout(QGridLayout())
-        self.layout().addWidget(fig.native,0,0,5,1)
-        #self.layout().addWidget(self.ctrl_widget,5,0,1,1)
-
-        self.fig = fig
-        #self.fig._bg_color = (0,0,0)
-        self.k = 4
-        plt = fig[0:self.k, 0:self.k]
-        plt.set_gl_state(depth_test=False)
-
-        plt._configure_2d()
-        selected = None
-
-        self.plt = plt
-        #self.plt.custom_hist = custom_hist
-
-        
-        self.data = None
-        self.color = None
-        self.scatter =  None
-        self.scatter_sub = None
-        self.data_bg = None
-        self.color_bg = None
-        self.scatter_bg = None
-
-        # the lasso
-        ldata =None
-        self.lasso = Lasso()
-        self.lasso_line = vp.Line(pos=None,parent=plt.view.scene, width=50, method='agg',color=(1,0,0))#, marker_size=0.0)
-        self.lasso_line.visible = False
-        self.lasso_line.order = 20
-
-        self.sub_data = None
-
-        # connect events
-        self.fig.events.mouse_press.connect(self.on_mouse_press)
-        self.fig.events.mouse_release.connect(self.on_mouse_release)
-        self.fig.events.mouse_move.connect(self.on_mouse_move)
-
-        self.cm = None
-        self.histxy = None
-
-    def get_cm(self):
-        return self.root.get_cm()
-
-    def set_data(self, data, color, values, data_bg=None, color_bg=None, values_bg=None):
-
-        self.data = data
-        self.data_bg = data_bg
+        self.is_sel = self.name == "sel"
+        if self.pos is not None:
+            logger.debug("build kdtree")
+            self.kdtree = KdTree(pos)
+            logger.debug("build kdtree done")
+        self.color = color
         self.values = values
-        self.values_bg = values_bg
+        self.z_index = z_index
+        self.root = root
+        self.clipnormed_values = None
+        self.colored_values = None
+        self.alpha = Alpha(1.0) 
+        self.color_filter = ColorFilter((1,1,1,1))
+        filters = ([],[self.color_filter])[self.is_sel]
+        self.scatter = MarkerProxy(plot=root.plot_scatter,
+             filters=filters + [self.alpha], symbol='o', edge_width=0.1)
+        bins = self.root.config['n_bins_histxy']
+        sigma = self.root.config['sigma_histxy']
+        self.histx = HistProxy(plot=root.plot_hist_x, filters=filters, bins=bins, sigma=sigma, orientation='h')
+        self.histy = HistProxy(plot=root.plot_hist_y, filters=filters, bins=bins, sigma=sigma, orientation='v')
+        self.histv = None
+        self.values_clipped_at = None
+        
+        self.is_visible = True
 
-        if self.with_background_scatter:
-            assert data_bg is not None
-            assert color_bg is not None
-        else:
-            assert data_bg is None
-            assert color_bg is None
+    def build_plots(self):
+           
+        if self.pos is not None:
+            clip_range = self.root.levels
 
-
-        # scatter fg
-        if self.scatter is None:
-            self.scatter = vp.Markers(pos=data,symbol='o', face_color=color, edge_width=0.1, edge_width_rel=None,parent=self.plt.view.scene)
-            self.scatter.order =-5
-
-        else:
-            self.scatter.set_data(pos=data,face_color=color)
-
-        # scatter bg
-        if self.with_background_scatter:
-            if self.scatter_bg is None:
-                self.scatter_bg = vp.Markers(pos=data_bg,symbol='o', face_color=color_bg, edge_width=0.1, edge_width_rel=None,parent=self.plt.view.scene)
-                self.scatter_bg.order =-3
-            else:
-                self.scatter_bg.set_data(pos=data_bg,face_color=color_bg)
-        self.plt.view.camera.set_range()
-
-        # histogram
-        plotx = self.fig[self.k, 0:self.k]
-        ploty = self.fig[0:self.k, self.k]
-        cm = self.get_cm()
-        value_range = self.root.levels
-        if not self.with_background_scatter:
+            # clip and normalize values st. they are in [0,1]
+            self.clipnormed_values = clip_norm(self.values, clip_range[0], clip_range[1])
+            # associate a color to each value
+            self.colored_values = self.root.apply_cm(self.clipnormed_values)
+            # update scatte plot
+            self.scatter.set_data(pos=self.pos, face_color=self.colored_values)
             
-            print("WUBAAA")
-            minvals = numpy.min(data, axis=0)
-            maxvals = numpy.max(data, axis=0)
+            cm = self.root.get_cm()
+            
+            # pos range is the min/max of the x/y coordinates
+            # for all datasets
+            pos_range = self.root.data_list.pos_range
+            self.histx.set_data(data=self.pos[:,0], range=pos_range[0], cm=cm, values=self.values, value_range=clip_range)
+            self.histy.set_data(data=self.pos[:,1], range=pos_range[1], cm=cm, values=self.values, value_range=clip_range)
+            self.scatter.visible = self.is_visible
+            self.histx.visible = self.is_visible
+            self.histy.visible = self.is_visible
 
-            if self.histxy is None:
-                print("is nione")
-                self.histxy = []
-                for d in range(2):
-                    plot = [ploty,plotx][d==0]
-                    orientation = ['v','h'][d==0]
-                    r = (minvals[d], maxvals[d])
-                    h = custom_hist(plot, data=data[:,d],     range=r, color=(1,0,0), orientation=orientation, cm=cm, values=self.values, value_range=value_range)
-                    self.histxy.append(h)
-            else:
-                print("reuse")
-                for d in range(2):
-                    plot = [ploty,plotx][d==0]
-                    orientation = ['v','h'][d==0]
-                    r = (minvals[d], maxvals[d])
-                    self.histxy[d].set_data(data=data[:,d],     range=r, color=(1,0,0), orientation=orientation, cm=cm, values=self.values, value_range=value_range)
-        else:
+    def on_colormap_changed(self):
+        if self.pos is not None :
+            assert self.clipnormed_values is not None
+            self.colored_values = self.root.apply_cm(self.clipnormed_values)
+            self.scatter.set_data(self.pos, face_color=self.colored_values)
+            self.histx.on_colormap_changed(self.root.get_cm())
+            self.histy.on_colormap_changed(self.root.get_cm())
+          
+    def on_levels_changed(self):
+        self.build_plots()
 
-            all_data = numpy.concatenate([data,data_bg], axis=0)
-            all_values = numpy.concatenate([self.values, self.values_bg])
-            minvals = numpy.min(all_data, axis=0)
-            maxvals = numpy.max(all_data, axis=0)
-            
-            
-            print("data",data.min(), data.max())
-            for d in range(2):
-                plot = [ploty,plotx][d==0]
-                orientation = ['v','h'][d==0]
-                r = (minvals[d], maxvals[d])
-                custom_hist(plot, data=data[:,d],     range=r, color=(1,0,0), orientation=orientation, cm=cm, values=self.values, value_range=value_range)
-                custom_hist(plot, data=data_bg[:,d],  range=r, color=(0,1,0), orientation=orientation, cm=cm, values=self.values_bg, value_range=value_range)
-                custom_hist(plot, data=all_data[:,d], range=r, color=(0,0,1), orientation=orientation, cm=cm, values=all_values, value_range=value_range)
-            
+    def setVisible(self, v):
+        self.is_visible = v
+        self.scatter.visible = v
+        self.histx.visible = v
+        self.histy.visible = v
+
+    def setAlpha(self, alpha):
     
-    def on_levels_changed(self, levels):
-        pass
+        self.alpha.alpha = alpha
+        self.scatter.update()
 
-    def map_to_dataspace(self, pos):
-        tr = self.fig.scene.node_transform(self.scatter)
-        return tr.map(pos)[0:2]
+    def setData(self, pos, values):
+        self.pos = pos 
+        self.values = values
+    
+    def unsetData(self):
+        self.pos = None 
+        self.values = None
 
-  
-    def on_mouse_press(self, event):
-        pass
+class ScatterDatasetList(list):
+    def __init__(self, root):
+        super().__init__()
+        self.root = root
+        self.value_range = None
+        self.pos_range = None
 
-    def on_mouse_release(self, event):
-        if event.handled :
-            return
+    def build_from_list(self, data_list):
 
-        if hasattr(event.last_event,'is_custom_drag') and event.last_event.is_custom_drag :
-            self.on_drag_stop(event)
-
-
-    def on_mouse_move(self, event):
-
-        if event.is_dragging:
-            modifiers = QtGui.QApplication.keyboardModifiers()
-            if modifiers == QtCore.Qt.ControlModifier:
-                event.is_custom_drag = True
-                if not event.last_event.is_dragging:
-                   self.on_drag_start(event.last_event)
-
-                if self.lasso:
-                    self.on_drag(event)
-
-
-    def on_drag_start(self, event):
-        #print("on_drag_start")
-        self.lasso.reset()
-        pos = self.map_to_dataspace(event.pos)
-        self.lasso.add(pos)
-        self.lasso_line.visible = True
-
-    def on_drag_stop(self, event):
-        self._build_sub()
-        self.lasso_line.visible = False
-
-    def on_drag(self, event):
-        #print("on_drag")
-        pos = self.map_to_dataspace(event.pos)
-        self.lasso.add(pos)
-        self.lasso_line.set_data(pos=self.lasso.maybe_closed_array(), width=5)
+        # create then data set from the dict
+        for i, data in enumerate(data_list):
+            ds = ScatterDataset(
+                name=data['name'],
+                pos=data['pos'],
+                values=data['values'],
+                color=data['color'],
+                z_index = i,
+                root=self.root,
+            )
+            self.append(ds)
 
 
-    def _build_sub(self):
-        if len(self.lasso) > 2:
-            self.lasso.close_path()
-            self.sub_data = None
-            
-            self.selection = self.lasso.contains(self.data)
-            print("self.selection: {}".format(len(self.selection)))
-            if len(self.selection) > 0:
-                self.sub_data = self.data[self.selection,:]
-                if self.scatter_sub is None:
-                    self.scatter_sub = vp.Markers(pos=self.sub_data, face_color=(0.1, 0.9, 0.8),symbol='o', parent=self.plt.view.scene)
-                    self.scatter_sub.order =-10
-                else:
+        # find levels aka min max of values
+        scaler = MinMaxScaler()
+        for data in self:
+            scaler.partial_fit(data.values[...,None])
+        value_range = scaler.data_min_, scaler.data_max_
+        self.value_range = tuple([float(f) for f in value_range])
 
-                    self.scatter_sub.set_data(self.sub_data, face_color=(0.1, 0.9, 0.8),symbol='o')
 
-                self.scatter_sub.interactive = True
-                self.scatter_sub.visible = True
-            self.path = None
-            self.selectionChanged.emit(self.selection)
-    def show(self):
-        super().show()
-        self.fig.app.run()
+        # find min max of positions
+        scaler = MinMaxScaler()
+        for data in self:
+            scaler.partial_fit(data.pos)
+        self.pos_range = (scaler.data_min_[0], scaler.data_max_[0]),(scaler.data_min_[1], scaler.data_max_[1])
+
+        ds = ScatterDataset(
+            name='sel',
+            pos=None,
+            values=None,
+            color=(0,0,1),
+            z_index = len(data_list),
+            root=self.root,
+        )
+        self.append(ds)
+
+
+    def build_plots(self):
+        for data in self:
+            data.build_plots()
+
+    def on_colormap_changed(self):
+        for data in self:
+            data.on_colormap_changed()
+
+    def on_levels_changed(self):
+        for data in self:
+            data.on_levels_changed()
 
 
 
+class DatasetCtrlWidget(QWidget):
+    def __init__(self, root):
+        super().__init__()
+        self.setLayout(QtGui.QGridLayout())
+        g = self.layout()
+        
+        def on_eye(self, index, eye):
+            d = root.data_list[index].setVisible(eye.active())
+            root.plots[index].setVisible(eye.active())
 
+        def on_bar(self, index, bar):
+            d = root.data_list[index].setAlpha(bar.fraction())
+            root.plots[index].setOpacity(bar.fraction())
+
+        for i,data in enumerate(root.data_list):
+            bar = FractionSelectionBar()
+            bar.setFixedHeight(20)
+            eye = ToggleEye()
+
+
+            eye.activeChanged.connect(functools.partial(on_eye, index=i, eye=eye))
+            bar.fractionChanged.connect(functools.partial(on_bar, index=i, bar=bar))
+
+            g.addWidget(QtGui.QLabel(data.name),i,0)
+            g.addWidget(eye,i,1)
+            g.addWidget(bar,i,2,1,20)
+
+class CtrlWidget(QWidget):
+    def __init__(self, root):
+        super().__init__()
+        self.root = root
+    
+        self.combo_box = QtGui.QComboBox()
+        self._selection_types = ["ball","lasso", "ball"]
+        self.selection_type = self._selection_types[0]
+        self.combo_box.addItems(self._selection_types)
+        self.spinner_rad = QSpinBox()
+        self.spinner_knn = QSpinBox()
+
+        self._init_ui()
+        self._connect_signals()
+
+    def _init_ui(self):
+
+        self.spinner_rad.setMinimum(0)
+        self.spinner_knn.setMinimum(0)
+
+        self.spinner_rad.setValue(5)
+        self.spinner_knn.setValue(100)
+
+        self.spinner_knn.setEnabled(False)
+        self.spinner_rad.setEnabled(True)
+        
+
+        self.setLayout(QtGui.QGridLayout())
+        l = self.layout()
+        l.addWidget(QtGui.QLabel("SelectionType"), 0, 1)
+        l.addWidget(self.combo_box, 0, 2)
+        l.addWidget(QtGui.QLabel("ball radius"), 0, 3)
+        l.addWidget(self.spinner_rad, 0, 4)
+        l.addWidget(QtGui.QLabel("k"), 0, 5)
+        l.addWidget(self.spinner_knn, 0, 6)
+
+    def _connect_signals(self):
+        def f(i):
+            m = self._selection_types[i]
+            if m == "lasso":
+                self.spinner_knn.setEnabled(False)
+                self.spinner_rad.setEnabled(False)
+                self.root.sel_ellips.visible = False
+
+            elif m == "ball":
+                self.spinner_knn.setEnabled(False)
+                self.spinner_rad.setEnabled(True)
+                self.root.sel_ellips.visible = True
+
+            elif m == "knn":
+                self.spinner_knn.setEnabled(True)
+                self.spinner_rad.setEnabled(False)
+                self.root.sel_ellips.visible = False
+
+
+        self.combo_box.currentIndexChanged.connect(f)
+
+        def f(r):
+            self.root.sel_ellips.radius = (r,r)
+        # todo remove me
+        #self.root._init_crosshair()
+        self.spinner_rad.valueChanged.connect(f)
 
 class VisPyScatter(QWidget):
-    def __init__(self, with_background_scatter=False):
+
+    selectionChanged = QtCore.pyqtSignal()
+
+    def __init__(self, **kwargs):
         super().__init__()
-        self.with_background_scatter =with_background_scatter
-        self.setLayout(QGridLayout())
 
+        self.config = {
+            "trigger_cm_when_finished" : False,
+            "trigger_level_when_finished" : True,
+            "show_edges": True,
+            "n_bins_histv":100,
+            "n_bins_histxy":255,
+            "sigma_histxy": 2.0,
+            "sigma_histv" : 2.0,
+            
+        }
+        self.config.update(kwargs)
+        # the data and the global levels
+        self.data_list = ScatterDatasetList(root=self)
+        self.levels = None
 
-        self.plot = VisPyScatterPlot(with_background_scatter=with_background_scatter)
-        self.plot.root = self
-        self.histlut = HistogramLUTWidget()
+        # the vispy figure / widgets
+        self.vispy_fig = None
+        self.plot_hist_x = None
+        self.ploty = None
+        self._init_vispy_fig()
+
+        self.sel_ellips = None
+        self.sel_ellips_alpha = Alpha(0.2)
+
+        # qt widgets
+        self.histlut = HistogramLUTWidget(fillHistogram=True)
         self.histlut.item.gradient.restoreState(
             pg.graphicsItems.GradientEditorItem.Gradients['thermal'])
+        self.data_ctrl_widget = None
+        self.ctrl_widget = CtrlWidget(root=self)
 
-        self.levels = None
-        self.data = None
-        self.values = None
-        self.values_bg = None
-        self.data_bg = None
+        # plots for side value hists
+        self.plots = []
 
-        self.init_ui()
+        # init the ui
+        self._init_ui()
 
-    def init_ui(self):
+        # connect signals
+        self._connect_signals()
 
-        self.plot.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Preferred)
+        # TODO
+        self.bars = []
+
+        # selection
+        self.selection = None
+
+    @property
+    def selection_type(self):
+        return self.ctrl_widget.selection_type
+    
+
+    def interactive_ds(self):
+        return  self.data_list[0]
+
+    def sel_ds(self):
+        return self.data_list[-1]
+
+    def on_selection_changed(self, selection):
+        self.selectionChanged.emit()
+        if selection is None or len(selection) == 0:
+            logger.debug("on_deselect")
+            self.on_deselect()
+        else:
+            logger.debug("on_new_select")
+            self.on_new_select(selection)
+        self.selection = selection
+
+
+
+
+    def on_new_select(self, selection):
+        ds_sel = self.data_list[-1]
+        ds = self.interactive_ds() 
+        sel_pos = ds.pos[selection, :]
+        sel_values = ds.values[selection]
+        ds_sel.setData(pos=sel_pos, values=sel_values)
+        ds_sel.build_plots()
+        ds_sel.setVisible(True)
+        self.synch_axis(with_sel=True)
+
+        for ds in self.data_list[:-1]:
+            ds.color_filter.filter = (0.5,0.5,0.5,0.5)
+        self.sel_ds().setVisible(True)
+
+    def on_deselect(self):
+        for ds in self.data_list[:-1]:
+            ds.color_filter.filter = (1,1,1,1)
+
+        self.sel_ds().unsetData()
+        self.sel_ds().setVisible(False)
+        self.synch_axis()
+
+
+    def _init_ui(self):
+
+        # set main layut
+        self.setLayout(QGridLayout())
+
+        # the layout
+        layout = self.layout()
+
+        # add the vispy fig 
+        layout.addWidget(self.vispy_fig.native, 0, 0)
+
+        # add the histogram lut
+        layout.addWidget(self.histlut, 0, 1)
+
+
+        # make sure the scatter widget takes most of the space when window is maximized
+        self.vispy_fig.native.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Preferred)
         self.histlut.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.ctrl_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+
+            
+        self.layout().addWidget(self.ctrl_widget,1,0,1,2)
+
+    def _init_vispy_fig(self):
+
+        def conf_plot(plt):
+            plt._configure_2d()
+            plt.set_gl_state(depth_test=False)
 
 
-        self.layout().addWidget(self.plot, 0,0, 1,1)
-        self.layout().addWidget(self.histlut, 0,1, 1,1)
+        self.vispy_fig = vp.Fig(show=False)
+        k = 4
+        self.plot_scatter = self.vispy_fig[0:k, 0:k]
 
-        # levels changed
-        def f():
-            self.on_levels_change(self.histlut.getLevels())
-        self.histlut.sigLevelChangeFinished.connect(f)
+        conf_plot(self.plot_scatter)
+        self.plot_hist_x = self.vispy_fig[k, 0:k]
+        conf_plot(self.plot_hist_x)
+        self.plot_hist_y = self.vispy_fig[0:k, k]
+        conf_plot(self.plot_hist_y)
 
-        def f():
-            self.on_colormap_changed(self.get_cm())
 
-        # cm changed
-        self.histlut.item.gradient.sigGradientChanged.connect(self.on_colormap_changed)
+    def _init_crosshair(self):
+        if self.sel_ellips is None:
+            self.sel_ellips = visuals.Ellipse(center=(0.0,0.0), radius=(3, 3),
+                border_color=(0, 0, 1, 1), color=(1,0,1,0.1),
+                parent=self.plot_scatter.view.scene)
 
-    def set_levels(self, minv, maxv):
-        self.levels = (minv, maxv)
-        self.histlut.item.setLevels(self.levels[0], self.levels[1])
-        self.histlut.setHistogramRange(self.levels[0], self.levels[1])
+        self.sel_ellips.order = -1
+        self.sel_ellips.visible = True
+        self.sel_ellips.attach(self.sel_ellips_alpha)
+
+    def _connect_signals(self):
+
+        # handle changing gradients
+        if self.config['trigger_cm_when_finished']:
+            self.histlut.gradient.sigGradientChangeFinished.connect(self.on_colormap_changed)
+        else:
+            self.histlut.gradient.sigGradientChanged.connect(self.on_colormap_changed)
+
+        # handle changing level
+        if self.config['trigger_level_when_finished']:
+            self.histlut.sigLevelChangeFinished.connect(self.on_levels_changed)
+        else:
+            self.histlut.sigLevelsChanged.connect(self.on_levels_changed)
+
+        # to handle cross-hair
+        self.vispy_fig.events.mouse_move.connect(self.on_mouse_move)
+        self.vispy_fig.events.mouse_press.connect(self.on_mouse_press)
+        self.vispy_fig.events.mouse_release.connect(self.on_mouse_release)
+
+
+        self.vispy_fig.events.key_release.connect(self.on_key_release)
+        self.vispy_fig.events.key_press.connect(self.on_key_press)
+
+        # to link scatter axis with histograms
+        self.plot_scatter.view.scene.transform.changed.connect(self.on_transform_changed)
+        self.vispy_fig.events.resize.connect(self.on_transform_changed)
+
+
+            
+
+
+
+    def on_transform_changed(self, _=None):
+        self.synch_axis()
+
+    def synch_axis(self, with_sel=False):
+
+
+        if with_sel:
+            max_bin_x = max([d.histx.max_bin_count for d in self.data_list])
+            max_bin_y = max([d.histy.max_bin_count for d in self.data_list])
+        else:
+            max_bin_x = max([d.histx.max_bin_count for d in self.data_list[:-1]])
+            max_bin_y = max([d.histy.max_bin_count for d in self.data_list[:-1]])
+
+
+        xaxis = self.plot_scatter.xaxis
+        yaxis = self.plot_scatter.yaxis
+
+        cam_rec = self.plot_hist_x.view.camera.rect
+        new = vispy.geometry.Rect()
+        new.left = xaxis.axis.domain[0]
+        new.right = xaxis.axis.domain[1]
+        new.top = max_bin_x
+        new.bottom = 0
+        self.plot_hist_x.view.camera.rect = new
+
+        cam_rec = self.plot_hist_y.view.camera.rect
+        new = vispy.geometry.Rect()
+        new.top = yaxis.axis.domain[1]
+        new.bottom = yaxis.axis.domain[0]
+        new.left = 0
+        new.right = max_bin_y
+        self.plot_hist_y.view.camera.rect = new
+
+
+    def map_coords(self, pos):
+        # this is hacky!
+        s = self.data_list[0].scatter.item
+        tr = self.vispy_fig.scene.node_transform(s)
+        return tr.map(pos)[0:2]
+
+    def on_key_press(self, event):
+        if self.selection_type == "ball":
+            print(event.key, type(event.key))
+            logger.debug("KEY %s %s", str(event.key), str(QtCore.Qt.Key_Shift))
+            if event.key == vispy.util.keys.SHIFT:
+                self.sel_ellips_alpha.alpha = 1.0
+                self.sel_ellips.update()
+
+    def on_key_release(self, event):
+        modifiers = QtGui.QApplication.keyboardModifiers()
+        if self.selection_type == "ball":
+            if event.key ==vispy.util.keys.SHIFT:
+                self.sel_ellips_alpha.alpha = 0.2
+                self.sel_ellips.update()
+
+    def on_mouse_press(self, event):
+        if self.selection_type == "ball":
+            pos =  self.map_coords(event.pos)
+            self.select_from_ball(pos=pos)
+            self.sel_ellips_alpha.alpha = 1.0
+            self.sel_ellips.update()
+
+    def on_mouse_release(self, event):
+        if self.selection_type == "ball":
+            self.sel_ellips_alpha.alpha = 0.2
+            self.sel_ellips.update()
+        else:
+            self.sel_ellips.visible = False
+
+    def on_mouse_move(self, event):
+        
+        modifiers = QtGui.QApplication.keyboardModifiers()
+       
+        if self.selection_type == "ball":
+            pos =  self.map_coords(event.pos)
+            self.sel_ellips.center = pos
+            if modifiers == QtCore.Qt.ShiftModifier:
+                self.sel_ellips_alpha.alpha = 1.0
+                self.select_from_ball(pos=pos)
+            else:
+                self.sel_ellips_alpha.alpha = 0.2
+   
+    def select_from_ball(self, pos):
+        self.sel_ellips_alpha.alpha = 1.0
+        self.sel_ellips.center = pos
+        radius = self.sel_ellips.radius
+        if not isinstance(radius, (int,float)):
+            assert math.isclose(radius[0], radius[1])
+            radius = radius[0]
+
+        ds = self.data_list[0]
+        kd = ds.kdtree
+        logger.debug("radius %s", radius)
+        logger.debug("pos %s", pos)
+        selection = kd.query_ball(pos=pos, r=self.sel_ellips.radius[0])
+        
+        # check if selection is nonempty
+        if selection is not None and  len(selection) > 0:
+            self.on_selection_changed(selection=selection)
+        else:
+            # the new selection is empty
+            # check if we had an old selection
+            if self.selection is not None:
+                self.on_selection_changed(selection=None)
+
+    def delect_selection(self):
+        self.on_selection_changed(None)
+      
+        
+    # start vispy app via run
+    def show(self):
+        super().show()
+        self.vispy_fig.app.run()
 
     def get_cm(self):
         return self.histlut.item.gradient.colorMap()
 
-
-    def normalize_values(self, values):
-        normalized_values = numpy.clip(values, self.levels[0], self.levels[1])
-        normalized_values -=  self.levels[0]
-        normalized_values /= (self.levels[1] - self.levels[0])
-        return normalized_values
-
     def apply_cm(self, values):
-        return self.get_cm().mapToFloat(values)
+        cm = self.get_cm()
+        color = cm.mapToFloat(values)
+        #color[:,3] *= 0.5
+        return color
 
-    # this is ONLY triggered by changes from the gui?
-    def on_levels_change(self, levels):
-        self.levels = levels
+    def set_data(self, data_list, levels=None):
 
-        if self.values is not None:
-            # color the data    
-            self.normalized_values = self.normalize_values(self.values)
-            color = self.apply_cm(self.normalized_values)
-            color_bg = None
-            if self.with_background_scatter:
-                self.normalized_values_bg = self.normalize_values(self.values_bg)
-                color_bg = self.apply_cm(self.normalized_values_bg)
-            self.plot.set_data(data=self.data, color=color, 
-                values=self.values, values_bg=self.values_bg,
-                data_bg=self.data_bg, color_bg=color_bg)
+        with block_signals(self, self.histlut.item):
+        
+            # clear data
+            self.data_list.clear()
+            
 
+            # find levels aka min max
+            self.data_list.build_from_list(data_list)
+            
+            # if no level is specified,
+            # we use the range of the data 
+            self.levels = levels
+            if self.levels is None:
+                self.levels = self.data_list.value_range
+            self.levels = tuple([float(f) for f in self.levels])
 
-    def on_colormap_changed(self, cm):
+            # build the plot
+            self.data_list.build_plots()
 
-        if self.normalized_values is not None:
-            color = self.get_cm().mapToFloat(self.normalized_values)
-            if self.with_background_scatter:
-                color_bg = self.get_cm().mapToFloat(self.normalized_values_bg)
-            else:
-                color_bg = None
-
-
-        self.plot.set_data(
-            data=self.data, 
-            color=color, 
-            values=self.values,
-            data_bg=self.data_bg,
-            color_bg=color_bg,
-            values_bg=self.values_bg
-            )
+            # set the range
+            self.plot_scatter.view.camera.set_range()
+            self.plot_hist_x.view.camera.set_range()
+            # self.plot_hist_y.view.camera.set_range()
+            self._init_crosshair()
 
 
+            self.histlut.item.region.setRegion(self.levels)
+            self.histlut.setHistogramRange(self.data_list.value_range[0], self.data_list.value_range[1])
 
-    def set_data(self, data, values, data_bg=None, values_bg=None):
-
-
-        self.values = values
-        self.values_bg  = values_bg
-        self.data = data
-        self.data_bg = data_bg
-        realmin = values.min()
-        realmax = values.max()
-        hist,b= numpy.histogram(values,bins=100, range=self.levels)
-        r =numpy.linspace(realmin,realmax, 100)
-        self.histlut.item.plot.setData(r,hist)
-
-        # color the data 
-        self.normalized_values = self.normalize_values(self.values)
-        color = self.apply_cm(self.normalized_values)
-
-        if self.with_background_scatter:
-            self.normalized_values_bg = self.normalize_values(self.values_bg)
-            color_bg = self.apply_cm(self.normalized_values_bg)
-        else:
-            self.data_bg = None
-            self.values_bg = None
-            color_bg = None
-
-        self.plot.set_data(data=self.data, color=color, values=self.values,
-            data_bg=self.data_bg, color_bg=color_bg, values_bg=self.values_bg)
+            logger.debug(f"value range {self.data_list.value_range}")
+            logger.debug(f"levels      {self.levels}")
 
 
 
-    def show(self):
-        super().show()
-        self.plot.fig.app.run()
+
+            for p in self.plots:
+                self.histlut.vb.removeItem(p)
+            self.plots.clear()
+
+
+
+            # sideSideColorHist (TODO: re-factor me)
+            n_bins = self.config['n_bins_histv']
+            for i,data in enumerate(self.data_list[:]):
+                p = SideColorHist(values=data.values, bins=n_bins, color=data.color, root=self, sigma=self.config['sigma_histv'])
+                self.histlut.vb.addItem(p)
+                self.plots.append(p)
+
+
+            # aspect ratio
+            self.plot_scatter.camera.aspect = 1.0
+
+
+
+            if self.data_ctrl_widget is not None:
+                self.layout().removeWidget(self.data_ctrl_widget)
+
+            self.data_ctrl_widget = DatasetCtrlWidget(self)
+
+            #self.vispy_fig.native.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Preferred)
+            self.data_ctrl_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+
+
+            self.layout().addWidget(self.data_ctrl_widget,2,0,1,2)
+            #self.layout().removeWidget(w)
+
+            logger.debug("set data end ")
+        
+        self.synch_axis()
+
+
+    def on_colormap_changed(self):
+        self.data_list.on_colormap_changed()
+
+    def on_levels_changed(self):
+        self.levels = self.histlut.getLevels()
+        self.data_list.on_levels_changed()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
