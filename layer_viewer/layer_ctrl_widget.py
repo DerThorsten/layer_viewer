@@ -2,25 +2,17 @@ import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui
 import os
 
+from . widgets.drag_and_drop_list_widget import DrangAndDropListWidget
 
-class DrangAndDropListWidget(QtGui.QListWidget):
+
+class LayerCtrlDrangAndDropListWidget(DrangAndDropListWidget):
     def __init__(self, parent=None):
-        QtGui.QListWidget.__init__(self, parent)
+        DrangAndDropListWidget.__init__(self, parent)
 
-        # Enable drag & drop ordering of items.
-        self.setDragDropMode(QtGui.QAbstractItemView.InternalMove)
-
-    def on_rowsInserted(self, parent_index, start, end):
-        pass
-
-    def dragEnterEvent(self, e):
-        pass
-        super(DrangAndDropListWidget, self).dragEnterEvent(e)
 
     def dropEvent(self, e):
-        pass
-        super(DrangAndDropListWidget, self).dropEvent(e)
-
+        super(LayerCtrlDrangAndDropListWidget, self).dropEvent(e)
+        print("fobu")
         n = self.count()
         for i in range(self.count()):
             item = self.item(i)
@@ -36,7 +28,7 @@ class LayerCtrlWidget(QtGui.QWidget):
 
         self.widget_layout = QtGui.QVBoxLayout()
 
-        self.list_widget = DrangAndDropListWidget(parent=self)
+        self.list_widget = LayerCtrlDrangAndDropListWidget(parent=self)
         # self.list_widget.horizontalScrollBar().setDisabled(True);
         self.widget_layout.addWidget(self.list_widget)
         self.setLayout(self.widget_layout)
@@ -47,6 +39,9 @@ class LayerCtrlWidget(QtGui.QWidget):
         qIndex = self.list_widget.indexFromItem(_list_widget_item)
         self.list_widget.model().removeRow(qIndex.row())
 
+    def add_layer(self, layer):
+        self.addLayer(layer=layer)
+        
     def addLayer(self, layer):
 
         w = layer.ctrl_widget()

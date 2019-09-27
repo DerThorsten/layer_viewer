@@ -34,7 +34,7 @@ class LayerItemWidget(QWidget):
         self,
         name=None,
         parent=None,
-        add_gradient_widgtet=False,
+        add_gradient_widget=False,
         channel_selector=False,
         add_as_rgb_button=False,
     ):
@@ -74,7 +74,7 @@ class LayerItemWidget(QWidget):
 
         self._layout.addWidget(self.bar, 1, 1, 1, 2)
 
-        if add_gradient_widgtet:
+        if add_gradient_widget:
             self.gradientWidget = GradientWidget(orientation="top")
             self.gradientWidget.loadPreset("grey")
             self._layout.addWidget(self.gradientWidget, 3, 1, 1, 2)

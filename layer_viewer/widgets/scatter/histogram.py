@@ -45,7 +45,7 @@ class CustomHistogramVisual(vispy.visuals.MeshVisual):
         # do the histogramming
         values = numpy.clip(values, *value_range)
         data, bin_edges, cvalues = colored_hist(data=data_in, values=values, range=list(range), n_bins=bins, normalize=True)
-        data = scipy.ndimage.gaussian_filter(data, sigma=self.sigma)
+        data = scipy.ndimage.gaussian_filter(data, sigma=sigma)
         
         self.max_bin_count = numpy.max(data)
 

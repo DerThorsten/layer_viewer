@@ -50,7 +50,157 @@ logger.addHandler(logging.NullHandler())
 patch_gradients()
 
 
+class GridLayoutWidget(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setLayout(QtGui.QGridLayout())
 
+
+class Selector(object):
+    def __init__(self, root):
+        self.root = root
+
+    def widget(self):
+        raise NotImplementedError()
+
+    def disable(self):
+        raise NotImplementedError()
+
+    def enable(self):
+        raise NotImplementedError()
+
+
+
+class BallSelector(Selector):
+    name = "Ball"
+
+    class CtrlWidget(GridLayoutWidget):
+        def __init__(self):
+            super().__init__()
+            l = self.layout()
+            self.rad_spinner = QSpinBox()
+            self.rad_spinner.setMinimum(0)
+            l.addWidget(self.rad_spinner, 0,0)
+
+    def __init__(self, root):
+        super().__init__(root=root)
+        self._widget = BallSelector.CtrlWidget()
+
+    def widget(self):
+        return self._widget
+
+class KnnSelector(Selector):
+    name = "KNN"
+
+    class CtrlWidget(GridLayoutWidget):
+        def __init__(self):
+            super().__init__()
+            l = self.layout()
+            self.knn_spinner = QSpinBox()
+            self.knn_spinner.setMinimum(0)
+            l.addWidget(self.knn_spinner, 0,0)
+
+    def __init__(self, root):
+        super().__init__(root=root)
+        self._widget = KnnSelector.CtrlWidget()
+
+    def widget(self):
+        return self._widget
+
+class LassoSelector(Selector):
+    name = "Lasso"
+    def __init__(self, root):
+        super().__init__(root=root)
+        self._widget = QWidget()
+
+    def widget(self):
+        return self._widget
+
+
+SELECTORS_CLS  = [
+    LassoSelector,
+    KnnSelector,
+    BallSelector
+]
+
+
+
+
+class CtrlWidget(QWidget):
+
+    def __init__(self, root):
+        super().__init__()
+        self.root = root
+        self.setLayout(QtGui.QGridLayout())
+        l =  self.layout()
+
+        for i,w in enumerate(self.root.selectors):
+            l.addWidget(QLabel(w.name), 0, i*2)
+            l.addWidget(w.widget(), 0, i*2 + 1)    
+
+if False:
+    class CtrlWidget(QWidget):
+        def __init__(self, root):
+            super().__init__()
+            self.root = root
+        
+            self.combo_box = QtGui.QComboBox()
+            self._selection_types = ["ball","lasso", "ball"]
+            self.selection_type = self._selection_types[0]
+            self.combo_box.addItems(self._selection_types)
+            self.spinner_rad = QSpinBox()
+            self.spinner_knn = QSpinBox()
+
+            self._init_ui()
+            self._connect_signals()
+
+        def _init_ui(self):
+
+            self.spinner_rad.setMinimum(0)
+            self.spinner_knn.setMinimum(0)
+
+            self.spinner_rad.setValue(5)
+            self.spinner_knn.setValue(100)
+
+            self.spinner_knn.setEnabled(False)
+            self.spinner_rad.setEnabled(True)
+            
+
+            self.setLayout(QtGui.QGridLayout())
+            l = self.layout()
+            l.addWidget(QtGui.QLabel("SelectionType"), 0, 1)
+            l.addWidget(self.combo_box, 0, 2)
+            l.addWidget(QtGui.QLabel("ball radius"), 0, 3)
+            l.addWidget(self.spinner_rad, 0, 4)
+            l.addWidget(QtGui.QLabel("k"), 0, 5)
+            l.addWidget(self.spinner_knn, 0, 6)
+
+        def _connect_signals(self):
+            def f(i):
+                m = self._selection_types[i]
+                if m == "lasso":
+                    self.spinner_knn.setEnabled(False)
+                    self.spinner_rad.setEnabled(False)
+                    self.root.sel_ellips.visible = False
+
+                elif m == "ball":
+                    self.spinner_knn.setEnabled(False)
+                    self.spinner_rad.setEnabled(True)
+                    self.root.sel_ellips.visible = True
+
+                elif m == "knn":
+                    self.spinner_knn.setEnabled(True)
+                    self.spinner_rad.setEnabled(False)
+                    self.root.sel_ellips.visible = False
+
+
+            self.combo_box.currentIndexChanged.connect(f)
+
+            def f(r):
+                self.root.sel_ellips.radius = (r,r)
+            # todo remove me
+            #self.root._init_crosshair()
+            self.spinner_rad.valueChanged.connect(f)
 
 
 class ScatterDataset(object):
@@ -58,6 +208,12 @@ class ScatterDataset(object):
         self.name = name
         self.pos = pos
         self.is_sel = self.name == "sel"
+
+        # we never need a kd tree for datasets where pos is None
+        # and the only ds which can have a pos == None is the
+        # selection dataset itself, therefore we can just
+        # ignore the kdtree attribute (not have it) when we do not
+        # have a pos
         if self.pos is not None:
             logger.debug("build kdtree")
             self.kdtree = KdTree(pos)
@@ -70,37 +226,38 @@ class ScatterDataset(object):
         self.colored_values = None
         self.alpha = Alpha(1.0) 
         self.color_filter = ColorFilter((1,1,1,1))
-        filters = ([],[self.color_filter])[self.is_sel]
-        self.scatter = MarkerProxy(plot=root.plot_scatter,
+        filters = ([self.color_filter],[])[self.is_sel]
+        self.scatter = MarkerProxy(plot=root.plot_scatter,z_index=z_index,
              filters=filters + [self.alpha], symbol='o', edge_width=0.1)
         bins = self.root.config['n_bins_histxy']
         sigma = self.root.config['sigma_histxy']
         self.histx = HistProxy(plot=root.plot_hist_x, filters=filters, bins=bins, sigma=sigma, orientation='h')
         self.histy = HistProxy(plot=root.plot_hist_y, filters=filters, bins=bins, sigma=sigma, orientation='v')
         self.histv = None
-        self.values_clipped_at = None
         
         self.is_visible = True
 
     def build_plots(self):
-           
+        
+        # pos can be none in case of the "selection dataset"
+        # which only has self.pos!=None when there is an 
+        # actual selection
         if self.pos is not None:
+            # where to clip the 
             clip_range = self.root.levels
 
             # clip and normalize values st. they are in [0,1]
             self.clipnormed_values = clip_norm(self.values, clip_range[0], clip_range[1])
-            # associate a color to each value
             self.colored_values = self.root.apply_cm(self.clipnormed_values)
-            # update scatte plot
             self.scatter.set_data(pos=self.pos, face_color=self.colored_values)
-            
-            cm = self.root.get_cm()
             
             # pos range is the min/max of the x/y coordinates
             # for all datasets
             pos_range = self.root.data_list.pos_range
+            cm = self.root.get_cm()
             self.histx.set_data(data=self.pos[:,0], range=pos_range[0], cm=cm, values=self.values, value_range=clip_range)
             self.histy.set_data(data=self.pos[:,1], range=pos_range[1], cm=cm, values=self.values, value_range=clip_range)
+
             self.scatter.visible = self.is_visible
             self.histx.visible = self.is_visible
             self.histy.visible = self.is_visible
@@ -151,7 +308,7 @@ class ScatterDatasetList(list):
                 pos=data['pos'],
                 values=data['values'],
                 color=data['color'],
-                z_index = i,
+                z_index = -i,
                 root=self.root,
             )
             self.append(ds)
@@ -223,68 +380,7 @@ class DatasetCtrlWidget(QWidget):
             g.addWidget(eye,i,1)
             g.addWidget(bar,i,2,1,20)
 
-class CtrlWidget(QWidget):
-    def __init__(self, root):
-        super().__init__()
-        self.root = root
-    
-        self.combo_box = QtGui.QComboBox()
-        self._selection_types = ["ball","lasso", "ball"]
-        self.selection_type = self._selection_types[0]
-        self.combo_box.addItems(self._selection_types)
-        self.spinner_rad = QSpinBox()
-        self.spinner_knn = QSpinBox()
 
-        self._init_ui()
-        self._connect_signals()
-
-    def _init_ui(self):
-
-        self.spinner_rad.setMinimum(0)
-        self.spinner_knn.setMinimum(0)
-
-        self.spinner_rad.setValue(5)
-        self.spinner_knn.setValue(100)
-
-        self.spinner_knn.setEnabled(False)
-        self.spinner_rad.setEnabled(True)
-        
-
-        self.setLayout(QtGui.QGridLayout())
-        l = self.layout()
-        l.addWidget(QtGui.QLabel("SelectionType"), 0, 1)
-        l.addWidget(self.combo_box, 0, 2)
-        l.addWidget(QtGui.QLabel("ball radius"), 0, 3)
-        l.addWidget(self.spinner_rad, 0, 4)
-        l.addWidget(QtGui.QLabel("k"), 0, 5)
-        l.addWidget(self.spinner_knn, 0, 6)
-
-    def _connect_signals(self):
-        def f(i):
-            m = self._selection_types[i]
-            if m == "lasso":
-                self.spinner_knn.setEnabled(False)
-                self.spinner_rad.setEnabled(False)
-                self.root.sel_ellips.visible = False
-
-            elif m == "ball":
-                self.spinner_knn.setEnabled(False)
-                self.spinner_rad.setEnabled(True)
-                self.root.sel_ellips.visible = True
-
-            elif m == "knn":
-                self.spinner_knn.setEnabled(True)
-                self.spinner_rad.setEnabled(False)
-                self.root.sel_ellips.visible = False
-
-
-        self.combo_box.currentIndexChanged.connect(f)
-
-        def f(r):
-            self.root.sel_ellips.radius = (r,r)
-        # todo remove me
-        #self.root._init_crosshair()
-        self.spinner_rad.valueChanged.connect(f)
 
 class VisPyScatter(QWidget):
 
@@ -304,6 +400,7 @@ class VisPyScatter(QWidget):
             
         }
         self.config.update(kwargs)
+        self.selectors = [cls(root=self) for cls in SELECTORS_CLS]
         # the data and the global levels
         self.data_list = ScatterDatasetList(root=self)
         self.levels = None
@@ -419,7 +516,6 @@ class VisPyScatter(QWidget):
         self.vispy_fig = vp.Fig(show=False)
         k = 4
         self.plot_scatter = self.vispy_fig[0:k, 0:k]
-
         conf_plot(self.plot_scatter)
         self.plot_hist_x = self.vispy_fig[k, 0:k]
         conf_plot(self.plot_hist_x)
@@ -616,7 +712,7 @@ class VisPyScatter(QWidget):
             # set the range
             self.plot_scatter.view.camera.set_range()
             self.plot_hist_x.view.camera.set_range()
-            # self.plot_hist_y.view.camera.set_range()
+            self.plot_hist_y.view.camera.set_range()
             self._init_crosshair()
 
 

@@ -51,7 +51,7 @@ class RGBImageLayer(LayerBase):
                 self.m_data, autoLevels=self.m_autoLevels, levels=self.m_levels
             )
 
-        self.m_ctrl_widget = LayerItemWidget(name=self.name, add_gradient_widgtet=False)
+        self.m_ctrl_widget = LayerItemWidget(name=self.name, add_gradient_widget=False)
         self.viewer = None
 
         self.m_ctrl_widget.toggleEye.setActive(True)

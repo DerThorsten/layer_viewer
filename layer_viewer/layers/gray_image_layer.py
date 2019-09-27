@@ -57,7 +57,7 @@ class GrayImageLayer(LayerBase):
                 self.m_data, autoLevels=self.m_autoLevels, levels=self.m_levels
             )
 
-        self.m_ctrl_widget = LayerItemWidget(name=self.name, add_gradient_widgtet=True)
+        self.m_ctrl_widget = LayerItemWidget(name=self.name, add_gradient_widget=True)
         self.viewer = None
 
         self.cmap = cmap

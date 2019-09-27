@@ -39,7 +39,7 @@ class MultiChannelImageLayer(LayerBase):
     class CtrlWidget(LayerItemWidget):
         def __init__(self, name):
             super().__init__(
-                name=name, add_gradient_widgtet=True, channel_selector=True
+                name=name, add_gradient_widget=True, channel_selector=True
             )
 
             self.asRgb = QtGui.QCheckBox()

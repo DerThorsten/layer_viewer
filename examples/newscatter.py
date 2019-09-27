@@ -13,7 +13,7 @@ app = pg.mkQApp()
 import logging
 logging.basicConfig(level=logging.DEBUG)
 
-n_samples = 1000000
+n_samples = 1000
 
 
 
